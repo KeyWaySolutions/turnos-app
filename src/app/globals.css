@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #034959;
+
+  /* Brand Colors */
+  --brand-cyan: #049DBF;
+  --brand-dark: #034959;
+  --brand-teal: #29A68F;
+  --brand-mint: #9BF2C1;
+  --brand-green: #73D97A;
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-mint: var(--brand-mint);
+  --color-brand-green: var(--brand-green);
+  
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Force light mode background */
+html, body {
+  background-color: #ffffff !important;
+  color: #034959;
+}
+
+/* Scrollbar customization for a cleaner premium look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #29A68F;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #049DBF;
+}
