@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 const MONTH_NAMES = [
@@ -16,6 +17,8 @@ const TIME_SLOTS = [
 ];
 
 export default function LoginPage() {
+  const router = useRouter();
+
   // Auth states
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -29,10 +32,18 @@ export default function LoginPage() {
   const [selectedTime, setSelectedTime] = useState(null);
   const [currentDateObj, setCurrentDateObj] = useState(null);
 
-  // Sync today's date on hydration
+  // Sync today's date on hydration and check current session
   useEffect(() => {
     setCurrentDateObj(new Date());
-  }, []);
+
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        router.push('/dashboard');
+      }
+    };
+    checkSession();
+  }, [router]);
 
   // Handle month navigation
   const handlePrevMonth = () => {
@@ -112,8 +123,11 @@ export default function LoginPage() {
         if (error) throw error;
         setAuthMessage({
           type: 'success',
-          text: `¡Bienvenido de nuevo! Has iniciado sesión como ${data.user.email}.`,
+          text: `¡Bienvenido de nuevo! Has iniciado sesión como ${data.user.email}. Redirigiendo al panel...`,
         });
+        setTimeout(() => {
+          router.push('/dashboard');
+        }, 1000);
       }
     } catch (error) {
       setAuthMessage({
