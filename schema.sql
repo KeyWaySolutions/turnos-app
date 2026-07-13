@@ -114,16 +114,30 @@ create policy "Administradores gestionan su propio perfil"
   with check (auth.uid() = user_id);
 
 -- 4.2 Políticas para la tabla "servicios"
--- Permite lectura pública para que los clientes vean el catálogo de servicios al reservar.
-create policy "Lectura pública de servicios"
+-- Permite SELECT a dueños de servicios autenticados
+create policy "Permitir SELECT a dueños de servicios"
   on public.servicios for select
-  using (true);
+  to authenticated
+  using (auth.uid() = user_id);
 
--- El administrador autenticado gestiona su propio catálogo.
-create policy "Administradores gestionan sus servicios"
-  on public.servicios for all
+-- Permite INSERT a dueños de servicios autenticados
+create policy "Permitir INSERT a dueños de servicios"
+  on public.servicios for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+-- Permite UPDATE a dueños de servicios autenticados
+create policy "Permitir UPDATE a dueños de servicios"
+  on public.servicios for update
+  to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- Permite DELETE a dueños de servicios autenticados
+create policy "Permitir DELETE a dueños de servicios"
+  on public.servicios for delete
+  to authenticated
+  using (auth.uid() = user_id);
 
 -- 4.3 Políticas para la tabla "horarios"
 -- Permite lectura pública para que los clientes vean los horarios configurados del comercio.
