@@ -1,0 +1,504 @@
+"use client";
+
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+
+const MONTH_NAMES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+];
+
+const WEEK_DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+const TIME_SLOTS = [
+  "08:30", "09:15", "10:00", "10:45", "11:30", 
+  "14:00", "14:45", "15:30", "16:15", "17:00"
+];
+
+const SERVICES = [
+  { id: "consulta-general", name: "Consulta General", description: "Evaluación inicial y diagnóstico básico." },
+  { id: "tratamiento-premium", name: "Tratamiento Premium", description: "Atención especializada de alta calidad y cuidado completo." },
+  { id: "sesion-express", name: "Sesión Express", description: "Atención rápida focalizada para consultas puntuales." }
+];
+
+export default function ReservasPage() {
+  // Booking selections
+  const [selectedService, setSelectedService] = useState("");
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
+  
+  // Client details
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  
+  // Application states
+  const [viewDate, setViewDate] = useState(new Date());
+  const [currentDateObj, setCurrentDateObj] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+
+  // Sync today's date on hydration to avoid SSR mismatch
+  useEffect(() => {
+    setCurrentDateObj(new Date());
+  }, []);
+
+  // Handle month navigation
+  const handlePrevMonth = () => {
+    setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  // Helper date queries
+  const isToday = (dayDate) => {
+    if (!dayDate || !currentDateObj) return false;
+    return dayDate.getDate() === currentDateObj.getDate() &&
+           dayDate.getMonth() === currentDateObj.getMonth() &&
+           dayDate.getFullYear() === currentDateObj.getFullYear();
+  };
+
+  const isPast = (dayDate) => {
+    if (!dayDate || !currentDateObj) return false;
+    const compareDate = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+    const todayDate = new Date(currentDateObj.getFullYear(), currentDateObj.getMonth(), currentDateObj.getDate());
+    return compareDate < todayDate;
+  };
+
+  const isWeekend = (dayDate) => {
+    if (!dayDate) return false;
+    const day = dayDate.getDay();
+    return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
+  };
+
+  // Generate calendar days
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDayOfMonth = new Date(year, month, 1);
+  
+  const rawFirstDay = firstDayOfMonth.getDay();
+  // Adjust day order (0: Monday, 6: Sunday)
+  const offset = rawFirstDay === 0 ? 6 : rawFirstDay - 1;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const calendarDays = [];
+  for (let i = 0; i < offset; i++) {
+    calendarDays.push(null);
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    calendarDays.push(new Date(year, month, d));
+  }
+
+  // Format date safely for display
+  const formatFullSelectedDate = (date) => {
+    if (!date) return '';
+    return date.toLocaleDateString('es-ES', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
+  // Handle form submission
+  const handleSubmitBooking = async (e) => {
+    e.preventDefault();
+    
+    // Validations
+    if (!selectedService) {
+      setMessage({ type: 'error', text: 'Por favor, selecciona un tipo de servicio.' });
+      return;
+    }
+    if (!selectedDate) {
+      setMessage({ type: 'error', text: 'Por favor, selecciona un día para tu turno.' });
+      return;
+    }
+    if (!selectedTime) {
+      setMessage({ type: 'error', text: 'Por favor, selecciona un horario disponible.' });
+      return;
+    }
+    if (!fullName.trim() || !email.trim() || !phone.trim()) {
+      setMessage({ type: 'error', text: 'Por favor, completa todos los campos del formulario.' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      // Format selected date locally as YYYY-MM-DD
+      const localYear = selectedDate.getFullYear();
+      const localMonth = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const localDay = String(selectedDate.getDate()).padStart(2, '0');
+      const formattedDate = `${localYear}-${localMonth}-${localDay}`;
+
+      // Insert record in Supabase
+      const { data, error } = await supabase
+        .from('reservas')
+        .insert([
+          {
+            nombre: fullName,
+            email: email,
+            telefono: phone,
+            fecha: formattedDate,
+            hora: selectedTime,
+            servicio: selectedService
+          }
+        ])
+        .select();
+
+      if (error) throw error;
+
+      // Show success alert using the specified tones (#9BF2C1 and #73D97A)
+      setMessage({
+        type: 'success',
+        text: `¡Reserva confirmada con éxito! Tu turno para el servicio de ${
+          SERVICES.find(s => s.id === selectedService)?.name
+        } ha sido agendado para el día ${formatFullSelectedDate(selectedDate)} a las ${selectedTime} hs.`
+      });
+
+      // Clear selections & inputs
+      setSelectedService("");
+      setSelectedDate(null);
+      setSelectedTime(null);
+      setFullName("");
+      setEmail("");
+      setPhone("");
+    } catch (err) {
+      console.error("Error creating reservation:", err);
+      setMessage({
+        type: 'error',
+        text: err.message || 'Ocurrió un error al procesar tu reserva. Por favor, asegúrate de que la base de datos esté configurada.'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-white text-brand-dark flex flex-col">
+      {/* Brand Header */}
+      <header className="border-b border-brand-teal/10 bg-white py-5 px-6 sm:px-12 flex justify-between items-center shadow-sm select-none">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-brand-cyan flex items-center justify-center text-white shadow-md shadow-brand-cyan/20">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+            </svg>
+          </div>
+          <div>
+            <span className="text-xl font-bold tracking-tight text-brand-dark">
+              Turnos<span className="text-brand-cyan">Ya</span>
+            </span>
+            <span className="text-xs ml-2 text-brand-teal font-medium border-l border-brand-teal/20 pl-2">Portal de Reservas</span>
+          </div>
+        </div>
+        <a 
+          href="/login" 
+          className="text-xs font-bold text-brand-cyan hover:text-brand-teal transition-colors border border-brand-cyan/20 px-3 py-1.5 rounded-lg hover:bg-brand-mint/10"
+        >
+          Acceso Administrador
+        </a>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-grow max-w-6xl w-full mx-auto p-6 sm:p-10 grid grid-cols-1 lg:grid-cols-12 gap-8 bg-white">
+        
+        {/* LEFT COLUMN: Selector, Calendar and Time Grid (7 cols) */}
+        <section className="lg:col-span-7 space-y-6">
+          <div className="bg-white rounded-2xl border border-brand-teal/10 p-5 sm:p-7 shadow-sm">
+            <h2 className="text-2xl font-extrabold text-brand-dark mb-1">Reserva tu Turno</h2>
+            <p className="text-sm text-brand-teal mb-6">Selecciona el servicio, fecha y hora de tu preferencia en el calendario.</p>
+
+            {/* 1. Service Dropdown Selector */}
+            <div className="mb-6">
+              <label htmlFor="service-select" className="block text-sm font-bold text-[#034959] mb-2">
+                Tipo de Servicio
+              </label>
+              <select
+                id="service-select"
+                value={selectedService}
+                onChange={(e) => setSelectedService(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-brand-teal/20 text-brand-dark bg-white focus:outline-none focus:border-[#049DBF] focus:ring-4 focus:ring-[#049DBF]/10 transition-all font-medium cursor-pointer"
+              >
+                <option value="" disabled>-- Elige una opción de servicio --</option>
+                {SERVICES.map(service => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </select>
+              {selectedService && (
+                <p className="text-xs text-brand-teal mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100 italic">
+                  {SERVICES.find(s => s.id === selectedService)?.description}
+                </p>
+              )}
+            </div>
+
+            {/* 2. Interactive Calendar */}
+            <div className="border border-brand-teal/10 rounded-2xl p-4 sm:p-5 bg-white mb-6">
+              <div className="flex justify-between items-center mb-5">
+                <span className="text-base font-bold text-[#034959]">
+                  {MONTH_NAMES[month]} {year}
+                </span>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handlePrevMonth}
+                    className="p-1.5 rounded-lg border border-brand-teal/15 text-brand-dark hover:bg-brand-mint/40 transition-colors"
+                    aria-label="Mes anterior"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextMonth}
+                    className="p-1.5 rounded-lg border border-brand-teal/15 text-brand-dark hover:bg-brand-mint/40 transition-colors"
+                    aria-label="Mes siguiente"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Weekdays */}
+              <div className="grid grid-cols-7 text-center text-xs font-bold text-brand-teal mb-3">
+                {WEEK_DAYS.map((day, idx) => (
+                  <div key={idx} className="py-1">{day}</div>
+                ))}
+              </div>
+
+              {/* Days Grid */}
+              <div className="grid grid-cols-7 gap-1 text-center">
+                {calendarDays.map((dayDate, idx) => {
+                  if (dayDate === null) {
+                    return <div key={`empty-${idx}`} className="p-2"></div>;
+                  }
+
+                  const dayNum = dayDate.getDate();
+                  const past = isPast(dayDate);
+                  const weekend = isWeekend(dayDate);
+                  const isSelected = selectedDate && 
+                    dayDate.getDate() === selectedDate.getDate() &&
+                    dayDate.getMonth() === selectedDate.getMonth() &&
+                    dayDate.getFullYear() === selectedDate.getFullYear();
+                  const today = isToday(dayDate);
+
+                  // Enable weekdays that are not in the past
+                  const isAvailable = !past && !weekend;
+
+                  let dayStyles = "p-2 rounded-xl text-sm font-semibold transition-all relative flex flex-col items-center justify-center aspect-square select-none ";
+                  
+                  if (isSelected) {
+                    // Selected day style uses specified luminous mint tone #9BF2C1 and border green #73D97A
+                    dayStyles += "bg-[#9BF2C1] text-[#034959] font-bold border-2 border-[#73D97A] shadow-sm";
+                  } else if (!isAvailable) {
+                    dayStyles += "text-slate-300 cursor-not-allowed";
+                  } else {
+                    dayStyles += "text-brand-dark cursor-pointer hover:bg-brand-mint/55 hover:text-brand-dark";
+                  }
+
+                  return (
+                    <button
+                      key={`day-${dayNum}`}
+                      type="button"
+                      disabled={!isAvailable}
+                      onClick={() => {
+                        setSelectedDate(dayDate);
+                        setSelectedTime(null); // Reset time when date changes
+                      }}
+                      className={dayStyles}
+                    >
+                      <span>{dayNum}</span>
+                      <div className="flex gap-0.5 absolute bottom-1.5">
+                        {isAvailable && !isSelected && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-brand-green"></span>
+                        )}
+                        {today && (
+                          <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-brand-dark' : 'bg-brand-dark'}`}></span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. Time Slots Grid */}
+            {selectedDate ? (
+              <div className="animate-fadeIn">
+                <h4 className="text-sm font-bold text-[#034959] mb-3 flex items-center gap-1.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4 text-brand-teal">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Horarios Disponibles para el {selectedDate.getDate()} de {MONTH_NAMES[selectedDate.getMonth()]}
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {TIME_SLOTS.map((time, idx) => {
+                    const isTimeSelected = selectedTime === time;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setSelectedTime(time)}
+                        className={`py-2.5 px-3 text-xs font-bold rounded-lg border transition-all text-center cursor-pointer ${
+                          isTimeSelected
+                            // Selected time uses luminous green #73D97A
+                            ? 'bg-[#73D97A] text-[#034959] border-[#29A68F] font-bold shadow-sm'
+                            : 'bg-white text-brand-dark border-brand-teal/20 hover:bg-brand-mint/50 active:scale-[0.97]'
+                        }`}
+                      >
+                        {time} hs
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 px-4 border-2 border-dashed border-brand-teal/10 rounded-2xl bg-slate-50/20">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-10 h-10 text-brand-teal/40 mx-auto mb-2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                </svg>
+                <p className="text-sm font-semibold text-brand-teal/70">
+                  Selecciona un día en el calendario para desplegar los horarios.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* RIGHT COLUMN: Contact Form & Summary (5 cols) */}
+        <section className="lg:col-span-5 space-y-6">
+          {/* Summary Panel */}
+          <div className="bg-[#034959] text-white rounded-2xl p-6 shadow-md shadow-brand-dark/10">
+            <h3 className="text-lg font-bold mb-4 border-b border-white/10 pb-2">Resumen de tu Turno</h3>
+            <ul className="space-y-3.5 text-sm">
+              <li className="flex justify-between">
+                <span className="text-[#9BF2C1] font-medium">Servicio:</span>
+                <span className="font-bold text-right text-white">
+                  {selectedService ? SERVICES.find(s => s.id === selectedService)?.name : "No seleccionado"}
+                </span>
+              </li>
+              <li className="flex justify-between">
+                <span className="text-[#9BF2C1] font-medium">Fecha:</span>
+                <span className="font-bold text-right text-white capitalize">
+                  {selectedDate ? formatFullSelectedDate(selectedDate) : "No seleccionada"}
+                </span>
+              </li>
+              <li className="flex justify-between">
+                <span className="text-[#9BF2C1] font-medium">Horario:</span>
+                <span className="font-bold text-right text-white">
+                  {selectedTime ? `${selectedTime} hs` : "No seleccionado"}
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Booking Request Form */}
+          <div className="bg-white rounded-2xl border border-brand-teal/10 p-5 sm:p-6 shadow-sm">
+            <h3 className="text-lg font-extrabold text-[#034959] mb-4">Información de Contacto</h3>
+            <form onSubmit={handleSubmitBooking} className="space-y-4">
+              
+              <div>
+                <label htmlFor="fullname" className="block text-sm font-bold text-[#034959] mb-1.5">
+                  Nombre Completo
+                </label>
+                <input
+                  id="fullname"
+                  type="text"
+                  required
+                  placeholder="Juan Pérez"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-brand-teal/20 text-brand-dark bg-white placeholder-slate-400 focus:outline-none focus:border-[#29A68F] focus:ring-4 focus:ring-[#29A68F]/10 transition-all font-medium"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="client-email" className="block text-sm font-bold text-[#034959] mb-1.5">
+                  Correo Electrónico
+                </label>
+                <input
+                  id="client-email"
+                  type="email"
+                  required
+                  placeholder="juan@ejemplo.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-brand-teal/20 text-brand-dark bg-white placeholder-slate-400 focus:outline-none focus:border-[#29A68F] focus:ring-4 focus:ring-[#29A68F]/10 transition-all font-medium"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="client-phone" className="block text-sm font-bold text-[#034959] mb-1.5">
+                  Número de Teléfono
+                </label>
+                <input
+                  id="client-phone"
+                  type="tel"
+                  required
+                  placeholder="+54 9 11 1234-5678"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-brand-teal/20 text-brand-dark bg-white placeholder-slate-400 focus:outline-none focus:border-[#29A68F] focus:ring-4 focus:ring-[#29A68F]/10 transition-all font-medium"
+                />
+              </div>
+
+              {/* Alert Message Banner */}
+              {message.text && (
+                <div className={`p-4 rounded-xl flex items-start gap-3 transition-all ${
+                  message.type === 'success'
+                    // Luminous tones (#9BF2C1 & #73D97A) for success feedback
+                    ? 'bg-[#9BF2C1]/40 border border-[#73D97A] text-[#034959]' 
+                    : 'bg-red-50 border border-red-200 text-red-800'
+                }`}>
+                  <div className="mt-0.5 flex-shrink-0">
+                    {message.type === 'success' ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-brand-teal">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-red-600">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </div>
+                  <p className="text-xs font-semibold leading-tight">{message.text}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-4 px-4 bg-[#29A68F] hover:bg-[#034959] text-white font-extrabold rounded-xl shadow-md shadow-brand-teal/10 hover:shadow-brand-dark/20 active:scale-[0.98] focus:outline-none focus:ring-4 focus:ring-[#29A68F]/25 transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center cursor-pointer text-sm"
+              >
+                {isSubmitting ? (
+                  <div className="flex items-center gap-2">
+                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Procesando...</span>
+                  </div>
+                ) : (
+                  "Confirmar Reserva"
+                )}
+              </button>
+            </form>
+          </div>
+        </section>
+
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-brand-teal/10 py-6 text-center text-xs text-slate-400 select-none bg-white">
+        &copy; {new Date().getFullYear()} TurnosYa. Todos los derechos reservados.
+      </footer>
+    </div>
+  );
+}
