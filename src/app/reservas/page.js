@@ -11,17 +11,6 @@ const MONTH_NAMES = [
 
 const WEEK_DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-const TIME_SLOTS = [
-  "08:30", "09:15", "10:00", "10:45", "11:30", 
-  "14:00", "14:45", "15:30", "16:15", "17:00"
-];
-
-const SERVICES = [
-  { id: "consulta-general", name: "Consulta General", description: "Evaluación inicial y diagnóstico básico." },
-  { id: "tratamiento-premium", name: "Tratamiento Premium", description: "Atención especializada de alta calidad y cuidado completo." },
-  { id: "sesion-express", name: "Sesión Express", description: "Atención rápida focalizada para consultas puntuales." }
-];
-
 function ReservasContent() {
   const supabase = createClient();
   const searchParams = useSearchParams();
@@ -31,6 +20,10 @@ function ReservasContent() {
   const [businessUserId, setBusinessUserId] = useState(null);
   const [businessName, setBusinessName] = useState("");
   const [loadingBusiness, setLoadingBusiness] = useState(true);
+
+  // Business services & schedules states loaded dynamically from database
+  const [servicesList, setServicesList] = useState([]);
+  const [scheduleList, setScheduleList] = useState([]);
 
   // Booking selections
   const [selectedService, setSelectedService] = useState("");
@@ -88,6 +81,37 @@ function ReservasContent() {
     resolveBusiness();
   }, [slug]);
 
+  // Load business services and schedules once business owner is resolved
+  useEffect(() => {
+    const loadBusinessData = async () => {
+      if (!businessUserId) return;
+      try {
+        // Fetch services
+        const { data: servicesData, error: servicesError } = await supabase
+          .from('servicios')
+          .select('*')
+          .eq('user_id', businessUserId)
+          .order('nombre', { ascending: true });
+
+        if (servicesError) throw servicesError;
+        setServicesList(servicesData || []);
+
+        // Fetch schedules
+        const { data: scheduleData, error: scheduleError } = await supabase
+          .from('horarios')
+          .select('*')
+          .eq('user_id', businessUserId);
+
+        if (scheduleError) throw scheduleError;
+        setScheduleList(scheduleData || []);
+      } catch (err) {
+        console.error("Error loading services/schedules:", err);
+      }
+    };
+
+    loadBusinessData();
+  }, [businessUserId]);
+
   // Handle month navigation
   const handlePrevMonth = () => {
     setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -112,10 +136,56 @@ function ReservasContent() {
     return compareDate < todayDate;
   };
 
-  const isWeekend = (dayDate) => {
+  const isDayAvailable = (dayDate) => {
     if (!dayDate) return false;
-    const day = dayDate.getDay();
-    return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
+    if (isPast(dayDate)) return false;
+
+    const dayIndex = dayDate.getDay() === 0 ? 6 : dayDate.getDay() - 1;
+    const dayConfig = scheduleList.find(s => s.dia === dayIndex);
+    
+    if (dayConfig) {
+      return dayConfig.activo;
+    }
+    
+    // Fallback: lunes a viernes activo por defecto
+    return dayIndex < 5;
+  };
+
+  const generateTimeSlots = () => {
+    if (!selectedDate) return [];
+    
+    const dayIndex = selectedDate.getDay() === 0 ? 6 : selectedDate.getDay() - 1;
+    const dayConfig = scheduleList.find(s => s.dia === dayIndex);
+    
+    const startTimeStr = dayConfig ? dayConfig.hora_inicio : "09:00";
+    const endTimeStr = dayConfig ? dayConfig.hora_fin : "18:00";
+    
+    // Si el día no está activo, no hay horarios
+    if (dayConfig && !dayConfig.activo) return [];
+    
+    const serviceDetail = servicesList.find(s => s.id === selectedService);
+    const duration = serviceDetail ? serviceDetail.duracion : 30; // minutos
+    
+    const slots = [];
+    
+    // Parse hours and minutes
+    const [startH, startM] = startTimeStr.split(':').map(Number);
+    const [endH, endM] = endTimeStr.split(':').map(Number);
+    
+    let current = new Date(selectedDate);
+    current.setHours(startH, startM, 0, 0);
+    
+    const end = new Date(selectedDate);
+    end.setHours(endH, endM, 0, 0);
+    
+    while (current < end) {
+      const hours = String(current.getHours()).padStart(2, '0');
+      const minutes = String(current.getMinutes()).padStart(2, '0');
+      slots.push(`${hours}:${minutes}`);
+      current.setMinutes(current.getMinutes() + duration);
+    }
+    
+    return slots;
   };
 
   // Generate calendar days
@@ -199,7 +269,7 @@ function ReservasContent() {
       setMessage({
         type: 'success',
         text: `¡Reserva confirmada con éxito! Tu turno para el servicio de ${
-          SERVICES.find(s => s.id === selectedService)?.name
+          servicesList.find(s => s.id === selectedService)?.nombre
         } ha sido agendado para el día ${formatFullSelectedDate(selectedDate)} a las ${selectedTime} hs.`
       });
 
@@ -317,15 +387,15 @@ function ReservasContent() {
                   className="w-full px-4 py-3 rounded-xl border border-brand-teal/20 text-brand-dark bg-white focus:outline-none focus:border-[#049DBF] focus:ring-4 focus:ring-[#049DBF]/10 transition-all font-medium cursor-pointer"
                 >
                   <option value="" disabled>-- Elige una opción de servicio --</option>
-                  {SERVICES.map(service => (
+                  {servicesList.map(service => (
                     <option key={service.id} value={service.id}>
-                      {service.name}
+                      {service.nombre} ({service.duracion} min)
                     </option>
                   ))}
                 </select>
                 {selectedService && (
                   <p className="text-xs text-brand-teal mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100 italic">
-                    {SERVICES.find(s => s.id === selectedService)?.description}
+                    Duración estimada del turno: {servicesList.find(s => s.id === selectedService)?.duracion} minutos.
                   </p>
                 )}
               </div>
@@ -375,15 +445,13 @@ function ReservasContent() {
                     }
 
                     const dayNum = dayDate.getDate();
-                    const past = isPast(dayDate);
-                    const weekend = isWeekend(dayDate);
                     const isSelected = selectedDate && 
                       dayDate.getDate() === selectedDate.getDate() &&
                       dayDate.getMonth() === selectedDate.getMonth() &&
                       dayDate.getFullYear() === selectedDate.getFullYear();
                     const today = isToday(dayDate);
 
-                    const isAvailable = !past && !weekend;
+                    const isAvailable = isDayAvailable(dayDate);
 
                     let dayStyles = "p-2 rounded-xl text-sm font-semibold transition-all relative flex flex-col items-center justify-center aspect-square select-none ";
                     
@@ -422,16 +490,22 @@ function ReservasContent() {
               </div>
 
               {/* 3. Time Slots Grid */}
-              {selectedDate ? (
+              {!selectedService ? (
+                <div className="text-center py-6 px-4 border border-dashed border-brand-teal/20 rounded-2xl bg-slate-50/10">
+                  <p className="text-sm font-semibold text-brand-teal/70">
+                    Selecciona un tipo de servicio para calcular la duración y ver los horarios.
+                  </p>
+                </div>
+              ) : selectedDate ? (
                 <div className="animate-fadeIn">
                   <h4 className="text-sm font-bold text-[#034959] mb-3 flex items-center gap-1.5">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4 text-brand-teal">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Horarios Disponibles para el {selectedDate.getDate()} de {MONTH_NAMES[selectedDate.getMonth()]}
+                    Horarios Disponibles para el {selectedDate.getDate()} de {MONTH_NAMES[selectedDate.getMonth()]} ({servicesList.find(s => s.id === selectedService)?.duracion} min)
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    {TIME_SLOTS.map((time, idx) => {
+                    {generateTimeSlots().map((time, idx) => {
                       const isTimeSelected = selectedTime === time;
                       return (
                         <button
@@ -448,6 +522,11 @@ function ReservasContent() {
                         </button>
                       );
                     })}
+                    {generateTimeSlots().length === 0 && (
+                      <p className="text-xs font-semibold text-slate-400 col-span-full py-2">
+                        No hay horarios disponibles configurados para este día de la semana.
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -471,8 +550,8 @@ function ReservasContent() {
               <ul className="space-y-3.5 text-sm">
                 <li className="flex justify-between">
                   <span className="text-[#9BF2C1] font-medium">Servicio:</span>
-                  <span className="font-bold text-right text-white">
-                    {selectedService ? SERVICES.find(s => s.id === selectedService)?.name : "No seleccionado"}
+                  <span className="font-bold text-right text-white text-right break-words max-w-[70%]">
+                    {selectedService ? servicesList.find(s => s.id === selectedService)?.nombre : "No seleccionado"}
                   </span>
                 </li>
                 <li className="flex justify-between">
