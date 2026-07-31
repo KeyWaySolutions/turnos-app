@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { isSupabaseConfigured } from '@/lib/supabaseClient';
+import { createClient } from '@/utils/supabase/client';
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -18,6 +19,7 @@ const TIME_SLOTS = [
 
 export default function LoginPage() {
   const router = useRouter();
+  const supabase = createClient();
 
   // Auth states
   const [isSignUp, setIsSignUp] = useState(false);
@@ -37,9 +39,17 @@ export default function LoginPage() {
     setCurrentDateObj(new Date());
 
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        router.push('/dashboard');
+      if (!isSupabaseConfigured) {
+        console.warn("Supabase no está configurado. Se omite la validación de sesión.");
+        return;
+      }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          router.push('/dashboard');
+        }
+      } catch (error) {
+        console.error("Error al obtener la sesión de Supabase:", error);
       }
     };
     checkSession();
@@ -104,6 +114,15 @@ export default function LoginPage() {
     setAuthLoading(true);
     setAuthMessage({ type: '', text: '' });
 
+    if (!isSupabaseConfigured) {
+      setAuthMessage({
+        type: 'error',
+        text: 'Error de configuración: Las variables de entorno de Supabase no están configuradas correctamente. Por favor, crea un archivo .env.local en la raíz del proyecto con las claves correspondientes (NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY) y reinicia el servidor de desarrollo.',
+      });
+      setAuthLoading(false);
+      return;
+    }
+
     try {
       if (isSignUp) {
         const { data, error } = await supabase.auth.signUp({
@@ -130,9 +149,16 @@ export default function LoginPage() {
         }, 1000);
       }
     } catch (error) {
+      console.error("Error de autenticación capturado:", error);
+      let errorMsg = 'Ocurrió un error inesperado al intentar autenticar.';
+      if (error instanceof TypeError && error.message.toLowerCase().includes('fetch')) {
+        errorMsg = 'Error de conexión: No se pudo conectar con el servidor de autenticación de Supabase. Esto ocurre si no tienes conexión a internet o si la URL de Supabase es inválida o inexistente.';
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
       setAuthMessage({
         type: 'error',
-        text: error.message || 'Ocurrió un error inesperado al intentar autenticar.',
+        text: errorMsg,
       });
     } finally {
       setAuthLoading(false);

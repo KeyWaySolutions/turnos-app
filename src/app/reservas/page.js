@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@/utils/supabase/client';
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -23,6 +23,7 @@ const SERVICES = [
 ];
 
 function ReservasContent() {
+  const supabase = createClient();
   const searchParams = useSearchParams();
   const slug = searchParams.get('slug');
 

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@/utils/supabase/client';
 
 const WEEK_DAYS = [
   { index: 0, name: "Lunes" },
@@ -16,6 +16,7 @@ const WEEK_DAYS = [
 
 export default function DashboardPage() {
   const router = useRouter();
+  const supabase = createClient();
 
   // Authentication & General states
   const [user, setUser] = useState(null);
@@ -122,7 +123,7 @@ export default function DashboardPage() {
         setSavedSlug(data.slug);
       }
     } catch (err) {
-      console.error("Error loading profile:", err);
+      console.error("Error loading profile:", err.message || err, err);
     }
   };
 
@@ -149,7 +150,7 @@ export default function DashboardPage() {
         setServicesList(data);
       }
     } catch (err) {
-      console.error("Error loading services:", err);
+      console.error("Error loading services:", err.message || err, err);
     }
   };
 
@@ -171,7 +172,7 @@ export default function DashboardPage() {
         setScheduleList(data);
       }
     } catch (err) {
-      console.error("Error loading schedule:", err);
+      console.error("Error loading schedule:", err.message || err, err);
     }
   };
 
@@ -192,10 +193,21 @@ export default function DashboardPage() {
     }
     setSavingProfile(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        triggerAlert('error', 'Sesión no válida o expirada. Por favor, inicia sesión nuevamente.');
+        router.push('/login');
+        return;
+      }
+      const currentUserId = session.user.id;
+
+      const payload = { user_id: currentUserId, nombre: businessName.trim(), slug: businessSlug };
+      console.log('Payload a enviar (Perfil):', payload);
+
       const { error } = await supabase
         .from('perfiles')
         .upsert(
-          { user_id: user.id, nombre: businessName.trim(), slug: businessSlug },
+          payload,
           { onConflict: 'user_id' }
         );
 
@@ -203,7 +215,7 @@ export default function DashboardPage() {
       setSavedSlug(businessSlug);
       triggerAlert('success', '¡Perfil de negocio guardado con éxito!');
     } catch (err) {
-      console.error("Error saving profile:", err);
+      console.error("Error saving profile:", err.message || err, err);
       triggerAlert('error', err.message || 'Error al guardar el perfil. Revisa si la base de datos está creada.');
     } finally {
       setSavingProfile(false);
@@ -226,9 +238,20 @@ export default function DashboardPage() {
         setNewServiceName("");
         triggerAlert('success', 'Servicio agregado localmente (Modo Demo).');
       } else {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          triggerAlert('error', 'Sesión no válida o expirada. Por favor, inicia sesión nuevamente.');
+          router.push('/login');
+          return;
+        }
+        const currentUserId = session.user.id;
+
+        const payload = [{ user_id: currentUserId, nombre: newServiceName.trim(), duracion: parseInt(newServiceDuration) }];
+        console.log('Payload a enviar (Servicio):', payload);
+
         const { data, error } = await supabase
           .from('servicios')
-          .insert([{ user_id: user.id, nombre: newServiceName.trim(), duracion: parseInt(newServiceDuration) }])
+          .insert(payload)
           .select();
 
         if (error) throw error;
@@ -239,7 +262,7 @@ export default function DashboardPage() {
         }
       }
     } catch (err) {
-      console.error("Error adding service:", err);
+      console.error("Error adding service:", err.message || err, err);
       triggerAlert('error', err.message || 'Error al agregar servicio.');
     } finally {
       setSavingService(false);
@@ -280,7 +303,7 @@ export default function DashboardPage() {
         triggerAlert('success', '¡Servicio actualizado con éxito!');
       }
     } catch (err) {
-      console.error("Error updating service:", err);
+      console.error("Error updating service:", err.message || err, err);
       triggerAlert('error', err.message || 'Error al actualizar servicio.');
     } finally {
       setSavingService(false);
@@ -306,7 +329,7 @@ export default function DashboardPage() {
         triggerAlert('success', '¡Servicio eliminado con éxito!');
       }
     } catch (err) {
-      console.error("Error deleting service:", err);
+      console.error("Error deleting service:", err.message || err, err);
       triggerAlert('error', err.message || 'Error al eliminar servicio.');
     } finally {
       setSavingService(false);
@@ -332,13 +355,23 @@ export default function DashboardPage() {
     e.preventDefault();
     setSavingSchedule(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        triggerAlert('error', 'Sesión no válida o expirada. Por favor, inicia sesión nuevamente.');
+        router.push('/login');
+        return;
+      }
+      const currentUserId = session.user.id;
+
       const records = scheduleList.map(item => ({
-        user_id: user.id,
+        user_id: currentUserId,
         dia: item.dia,
         activo: item.activo,
         hora_inicio: item.hora_inicio,
         hora_fin: item.hora_fin
       }));
+
+      console.log('Payload a enviar (Horarios):', records);
 
       const { error } = await supabase
         .from('horarios')
@@ -347,7 +380,7 @@ export default function DashboardPage() {
       if (error) throw error;
       triggerAlert('success', '¡Horarios de atención guardados con éxito!');
     } catch (err) {
-      console.error("Error saving schedule:", err);
+      console.error("Error saving schedule:", err.message || err, err);
       triggerAlert('error', err.message || 'Error al guardar los horarios. Revisa la base de datos.');
     } finally {
       setSavingSchedule(false);
