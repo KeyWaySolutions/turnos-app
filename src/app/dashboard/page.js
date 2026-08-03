@@ -35,10 +35,18 @@ export default function DashboardPage() {
   const [servicesList, setServicesList] = useState([]);
   const [newServiceName, setNewServiceName] = useState("");
   const [newServiceDuration, setNewServiceDuration] = useState(30);
+  const [newServiceCupo, setNewServiceCupo] = useState(1);
+  const [newServiceOverlap, setNewServiceOverlap] = useState(false);
+  const [newServicePrecio, setNewServicePrecio] = useState(0);
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [editingServiceName, setEditingServiceName] = useState("");
   const [editingServiceDuration, setEditingServiceDuration] = useState(30);
+  const [editingServiceCupo, setEditingServiceCupo] = useState(1);
+  const [editingServiceOverlap, setEditingServiceOverlap] = useState(false);
+  const [editingServicePrecio, setEditingServicePrecio] = useState(0);
   const [savingService, setSavingService] = useState(false);
+
+
 
   // 3. Schedule states
   const [scheduleList, setScheduleList] = useState(
@@ -50,6 +58,14 @@ export default function DashboardPage() {
     }))
   );
   const [savingSchedule, setSavingSchedule] = useState(false);
+
+  // 4. Agenda / Reservations states
+  const [reservationsList, setReservationsList] = useState([]);
+  const [loadingReservations, setLoadingReservations] = useState(false);
+  const [filterDate, setFilterDate] = useState("");
+  const [filterService, setFilterService] = useState("");
+
+
 
   // Check auth session and fetch user settings on mount
   useEffect(() => {
@@ -68,8 +84,10 @@ export default function DashboardPage() {
       await Promise.all([
         loadProfile(session.user),
         loadServices(session.user),
-        loadSchedule(session.user)
+        loadSchedule(session.user),
+        loadReservations(session.user)
       ]);
+
       
       setLoading(false);
     };
@@ -140,8 +158,8 @@ export default function DashboardPage() {
           setDbWarning(true);
           // Fallback static mock data for demo
           setServicesList([
-            { id: "mock-1", nombre: "Consulta General", duracion: 30 },
-            { id: "mock-2", nombre: "Tratamiento Premium", duracion: 60 }
+            { id: "mock-1", nombre: "Consulta General", duracion: 30, cupo: 2, permite_superposicion: true, precio: 1500 },
+            { id: "mock-2", nombre: "Tratamiento Premium", duracion: 60, cupo: 1, permite_superposicion: false, precio: 5000 }
           ]);
         } else {
           throw error;
@@ -176,7 +194,55 @@ export default function DashboardPage() {
     }
   };
 
+  const loadReservations = async (currentUser) => {
+    setLoadingReservations(true);
+    try {
+      const { data, error } = await supabase
+        .from('reservas')
+        .select('*')
+        .eq('business_id', currentUser.id)
+        .order('fecha', { ascending: true })
+        .order('hora', { ascending: true });
+
+      if (error) {
+        if (error.code === 'PGRST205' || error.message.includes('relation "public.reservas" does not exist')) {
+          setDbWarning(true);
+          // Fallback static mock data for demo
+          setReservationsList([
+            {
+              id: "mock-r1",
+              nombre: "Valentin Gomez",
+              email: "valentin@example.com",
+              telefono: "1122334455",
+              fecha: new Date(Date.now() + 86400000).toISOString().split('T')[0], // tomorrow
+              hora: "10:00",
+              servicio: servicesList[0]?.id || "mock-1"
+            },
+            {
+              id: "mock-r2",
+              nombre: "Lucía Fernandez",
+              email: "lucia@example.com",
+              telefono: "1166778899",
+              fecha: new Date(Date.now() + 86400000).toISOString().split('T')[0], // tomorrow
+              hora: "11:30",
+              servicio: servicesList[1]?.id || "mock-2"
+            }
+          ]);
+        } else {
+          throw error;
+        }
+      } else if (data) {
+        setReservationsList(data);
+      }
+    } catch (err) {
+      console.error("Error loading reservations:", err.message || err, err);
+    } finally {
+      setLoadingReservations(false);
+    }
+  };
+
   // --- Database Operations ---
+
 
   // Logout
   const handleLogout = async () => {
@@ -233,9 +299,19 @@ export default function DashboardPage() {
     try {
       if (dbWarning) {
         // Mock fallback for UI testing without database
-        const mockNew = { id: `mock-${Date.now()}`, nombre: newServiceName.trim(), duracion: parseInt(newServiceDuration) };
+        const mockNew = { 
+          id: `mock-${Date.now()}`, 
+          nombre: newServiceName.trim(), 
+          duracion: parseInt(newServiceDuration),
+          cupo: parseInt(newServiceCupo) || 1,
+          permite_superposicion: newServiceOverlap,
+          precio: parseFloat(newServicePrecio) || 0
+        };
         setServicesList(prev => [...prev, mockNew]);
         setNewServiceName("");
+        setNewServiceCupo(1);
+        setNewServiceOverlap(false);
+        setNewServicePrecio(0);
         triggerAlert('success', 'Servicio agregado localmente (Modo Demo).');
       } else {
         const { data: { session } } = await supabase.auth.getSession();
@@ -246,7 +322,14 @@ export default function DashboardPage() {
         }
         const currentUserId = session.user.id;
 
-        const payload = [{ user_id: currentUserId, nombre: newServiceName.trim(), duracion: parseInt(newServiceDuration) }];
+        const payload = [{ 
+          user_id: currentUserId, 
+          nombre: newServiceName.trim(), 
+          duracion: parseInt(newServiceDuration),
+          cupo: parseInt(newServiceCupo) || 1,
+          permite_superposicion: newServiceOverlap,
+          precio: parseFloat(newServicePrecio) || 0
+        }];
         console.log('Payload a enviar (Servicio):', payload);
 
         const { data, error } = await supabase
@@ -258,6 +341,9 @@ export default function DashboardPage() {
         if (data) {
           setServicesList(prev => [...prev, ...data]);
           setNewServiceName("");
+          setNewServiceCupo(1);
+          setNewServiceOverlap(false);
+          setNewServicePrecio(0);
           triggerAlert('success', '¡Servicio agregado con éxito!');
         }
       }
@@ -274,6 +360,9 @@ export default function DashboardPage() {
     setEditingServiceId(service.id);
     setEditingServiceName(service.nombre);
     setEditingServiceDuration(service.duracion);
+    setEditingServiceCupo(service.cupo || 1);
+    setEditingServiceOverlap(service.permite_superposicion || false);
+    setEditingServicePrecio(service.precio || 0);
   };
 
   const handleCancelEdit = () => {
@@ -288,17 +377,37 @@ export default function DashboardPage() {
     setSavingService(true);
     try {
       if (dbWarning || String(id).startsWith('mock-')) {
-        setServicesList(prev => prev.map(s => s.id === id ? { ...s, nombre: editingServiceName.trim(), duracion: parseInt(editingServiceDuration) } : s));
+        setServicesList(prev => prev.map(s => s.id === id ? { 
+          ...s, 
+          nombre: editingServiceName.trim(), 
+          duracion: parseInt(editingServiceDuration), 
+          cupo: parseInt(editingServiceCupo) || 1,
+          permite_superposicion: editingServiceOverlap,
+          precio: parseFloat(editingServicePrecio) || 0
+        } : s));
         setEditingServiceId(null);
         triggerAlert('success', 'Servicio actualizado localmente (Modo Demo).');
       } else {
         const { error } = await supabase
           .from('servicios')
-          .update({ nombre: editingServiceName.trim(), duracion: parseInt(editingServiceDuration) })
+          .update({ 
+            nombre: editingServiceName.trim(), 
+            duracion: parseInt(editingServiceDuration),
+            cupo: parseInt(editingServiceCupo) || 1,
+            permite_superposicion: editingServiceOverlap,
+            precio: parseFloat(editingServicePrecio) || 0
+          })
           .eq('id', id);
 
         if (error) throw error;
-        setServicesList(prev => prev.map(s => s.id === id ? { ...s, nombre: editingServiceName.trim(), duracion: parseInt(editingServiceDuration) } : s));
+        setServicesList(prev => prev.map(s => s.id === id ? { 
+          ...s, 
+          nombre: editingServiceName.trim(), 
+          duracion: parseInt(editingServiceDuration), 
+          cupo: parseInt(editingServiceCupo) || 1,
+          permite_superposicion: editingServiceOverlap,
+          precio: parseFloat(editingServicePrecio) || 0
+        } : s));
         setEditingServiceId(null);
         triggerAlert('success', '¡Servicio actualizado con éxito!');
       }
@@ -387,7 +496,30 @@ export default function DashboardPage() {
     }
   };
 
+  const handleDeleteReservation = async (id) => {
+    if (!confirm('¿Estás seguro de que deseas cancelar este turno?')) return;
+    try {
+      if (dbWarning || String(id).startsWith('mock-')) {
+        setReservationsList(prev => prev.filter(r => r.id !== id));
+        triggerAlert('success', 'Turno cancelado localmente (Modo Demo).');
+      } else {
+        const { error } = await supabase
+          .from('reservas')
+          .delete()
+          .eq('id', id);
+
+        if (error) throw error;
+        setReservationsList(prev => prev.filter(r => r.id !== id));
+        triggerAlert('success', '¡Turno cancelado con éxito!');
+      }
+    } catch (err) {
+      console.error("Error deleting reservation:", err.message || err, err);
+      triggerAlert('error', err.message || 'Error al cancelar el turno.');
+    }
+  };
+
   // Get shared link
+
   const getShareableLink = () => {
     const slugToUse = savedSlug || businessSlug || "tu-negocio";
     if (typeof window !== 'undefined') {
@@ -477,7 +609,22 @@ export default function DashboardPage() {
               </svg>
               Horarios de Atención
             </button>
+
+            <button
+              onClick={() => setActiveTab('agenda')}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 text-sm font-semibold rounded-xl transition-all cursor-pointer ${
+                activeTab === 'agenda'
+                  ? 'bg-brand-mint/20 text-[#034959] border-l-4 border-brand-teal font-bold'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-brand-dark'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+              </svg>
+              Agenda
+            </button>
           </nav>
+
         </div>
 
         {/* Logout button */}
@@ -614,7 +761,7 @@ export default function DashboardPage() {
             <div className="bg-white border border-brand-teal/10 rounded-2xl p-6 shadow-sm">
               <h3 className="text-sm font-bold text-[#034959] mb-4">Agregar Nuevo Servicio</h3>
               <form onSubmit={handleAddService} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                <div className="md:col-span-6">
+                <div className="md:col-span-4">
                   <label htmlFor="new-service-name" className="block text-xs font-bold text-[#034959] mb-1.5">
                     Nombre del Servicio
                   </label>
@@ -629,7 +776,7 @@ export default function DashboardPage() {
                   />
                 </div>
 
-                <div className="md:col-span-3">
+                <div className="md:col-span-2">
                   <label htmlFor="new-service-duration" className="block text-xs font-bold text-[#034959] mb-1.5">
                     Duración (minutos)
                   </label>
@@ -648,7 +795,39 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
-                <div className="md:col-span-3">
+                <div className="md:col-span-2">
+                  <label htmlFor="new-service-cupo" className="block text-xs font-bold text-[#034959] mb-1.5">
+                    Cupo por turno
+                  </label>
+                  <input
+                    id="new-service-cupo"
+                    type="number"
+                    min="1"
+                    required
+                    value={newServiceCupo}
+                    onChange={(e) => setNewServiceCupo(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-brand-teal/20 text-brand-dark bg-white focus:outline-none focus:border-[#049DBF] focus:ring-4 focus:ring-[#049DBF]/10 transition-all font-medium text-sm"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label htmlFor="new-service-precio" className="block text-xs font-bold text-[#034959] mb-1.5">
+                    Precio ($)
+                  </label>
+                  <input
+                    id="new-service-precio"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    value={newServicePrecio}
+                    onChange={(e) => setNewServicePrecio(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-brand-teal/20 text-brand-dark bg-white focus:outline-none focus:border-[#049DBF] focus:ring-4 focus:ring-[#049DBF]/10 transition-all font-medium text-sm"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
                   <button
                     type="submit"
                     disabled={savingService}
@@ -656,6 +835,24 @@ export default function DashboardPage() {
                   >
                     {savingService ? "..." : "Agregar"}
                   </button>
+                </div>
+
+                <div className="md:col-span-12 flex flex-col gap-1.5 mt-2.5 bg-slate-50 p-4 rounded-2xl border border-brand-teal/10">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="new-service-overlap"
+                      type="checkbox"
+                      checked={newServiceOverlap}
+                      onChange={(e) => setNewServiceOverlap(e.target.checked)}
+                      className="w-4 h-4 cursor-pointer accent-[#29A68F]"
+                    />
+                    <label htmlFor="new-service-overlap" className="text-xs font-bold text-[#034959] cursor-pointer select-none">
+                      Permitir superposición con otros servicios
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium">
+                    Si está desactivado, una reserva de este servicio bloqueará la agenda completa por su duración.
+                  </p>
                 </div>
               </form>
             </div>
@@ -667,13 +864,16 @@ export default function DashboardPage() {
                   <tr className="bg-slate-50 border-b border-brand-teal/10 text-xs font-bold uppercase text-brand-teal select-none">
                     <th className="py-3.5 px-6">Nombre de Servicio</th>
                     <th className="py-3.5 px-6">Duración</th>
+                    <th className="py-3.5 px-6">Cupo</th>
+                    <th className="py-3.5 px-6">Precio</th>
+                    <th className="py-3.5 px-6">Superposición</th>
                     <th className="py-3.5 px-6 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {servicesList.length === 0 ? (
                     <tr>
-                      <td colSpan="3" className="py-8 text-center text-slate-400 font-medium">
+                      <td colSpan="6" className="py-8 text-center text-slate-400 font-medium">
                         No has registrado ningún servicio.
                       </td>
                     </tr>
@@ -710,6 +910,48 @@ export default function DashboardPage() {
                               </select>
                             ) : (
                               `${service.duracion} minutos`
+                            )}
+                          </td>
+                          <td className="py-3 px-6 text-brand-teal font-medium">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                min="1"
+                                value={editingServiceCupo}
+                                onChange={(e) => setEditingServiceCupo(e.target.value)}
+                                className="w-20 px-3 py-1.5 rounded-lg border border-brand-teal/30 focus:outline-none focus:border-[#049DBF] text-sm bg-white"
+                              />
+                            ) : (
+                              `${service.cupo || 1} ${service.cupo === 1 || !service.cupo ? 'lugar' : 'lugares'}`
+                            )}
+                          </td>
+                          <td className="py-3 px-6 text-[#034959] font-semibold">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={editingServicePrecio}
+                                onChange={(e) => setEditingServicePrecio(e.target.value)}
+                                className="w-24 px-3 py-1.5 rounded-lg border border-brand-teal/30 focus:outline-none focus:border-[#049DBF] text-sm bg-white"
+                              />
+                            ) : (
+                              `$ ${Number(service.precio || 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+                            )}
+                          </td>
+                          <td className="py-3 px-6 text-brand-teal font-medium">
+                            {isEditing ? (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={editingServiceOverlap}
+                                  onChange={(e) => setEditingServiceOverlap(e.target.checked)}
+                                  className="w-4 h-4 cursor-pointer accent-[#29A68F]"
+                                />
+                                <span className="text-xs text-[#034959] font-semibold select-none">Permitir</span>
+                              </div>
+                            ) : (
+                              service.permite_superposicion ? "Sí" : "No"
                             )}
                           </td>
                           <td className="py-3 px-6 text-right space-x-2">
@@ -846,6 +1088,270 @@ export default function DashboardPage() {
                 </div>
               </form>
             </div>
+          </div>
+        )}
+
+        {/* TAB 4: AGENDA DE RESERVAS */}
+        {activeTab === 'agenda' && (
+          <div className="space-y-6 animate-fadeIn">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-extrabold text-[#034959]">Agenda de Turnos</h1>
+                <p className="text-sm text-brand-teal">Revisa y administra las reservas de tus clientes en orden cronológico.</p>
+              </div>
+              <button
+                onClick={() => user && loadReservations(user)}
+                disabled={loadingReservations}
+                className="flex items-center gap-1.5 px-4 py-2 border border-brand-teal/20 text-[#034959] hover:bg-brand-mint/10 active:scale-[0.98] font-semibold text-xs rounded-xl transition-all cursor-pointer bg-white"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={`w-3.5 h-3.5 ${loadingReservations ? 'animate-spin' : ''}`}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                {loadingReservations ? "Actualizando..." : "Actualizar"}
+              </button>
+            </div>
+
+            {/* Resumen Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white border border-brand-teal/10 rounded-2xl p-5 shadow-sm flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-brand-cyan/10 flex items-center justify-center text-brand-cyan">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Reservas</p>
+                  <p className="text-xl font-black text-[#034959]">{reservationsList.length}</p>
+                </div>
+              </div>
+
+              <div className="bg-white border border-brand-teal/10 rounded-2xl p-5 shadow-sm flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-[#29A68F]/10 flex items-center justify-center text-[#29A68F]">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Turnos Hoy</p>
+                  <p className="text-xl font-black text-[#034959]">
+                    {
+                      (() => {
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        return reservationsList.filter(r => r.fecha === todayStr).length;
+                      })()
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white border border-brand-teal/10 rounded-2xl p-5 shadow-sm flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-brand-green/10 flex items-center justify-center text-brand-green">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Próximos Turnos</p>
+                  <p className="text-xl font-black text-[#034959]">
+                    {
+                      (() => {
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        return reservationsList.filter(r => r.fecha >= todayStr).length;
+                      })()
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Filtro por fecha */}
+            <div className="bg-white border border-brand-teal/10 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 w-full md:w-auto">
+                {/* Filtro por fecha */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full sm:w-auto">
+                  <label htmlFor="filter-date-input" className="text-xs font-bold text-[#034959] shrink-0">
+                    Filtrar por Día:
+                  </label>
+                  <input
+                    id="filter-date-input"
+                    type="date"
+                    value={filterDate}
+                    onChange={(e) => setFilterDate(e.target.value)}
+                    className="px-3 py-2 text-xs font-medium rounded-xl border border-brand-teal/20 text-brand-dark bg-white focus:outline-none focus:border-[#29A68F] w-full sm:w-44"
+                  />
+                </div>
+
+                {/* Filtro por servicio */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full sm:w-auto">
+                  <label htmlFor="filter-service-select" className="text-xs font-bold text-[#034959] shrink-0">
+                    Filtrar por Servicio:
+                  </label>
+                  <select
+                    id="filter-service-select"
+                    value={filterService}
+                    onChange={(e) => setFilterService(e.target.value)}
+                    className="px-3 py-2 text-xs font-medium rounded-xl border border-brand-teal/20 text-[#034959] bg-white focus:outline-none focus:border-[#29A68F] w-full sm:w-48 cursor-pointer"
+                  >
+                    <option value="">Todos los servicios</option>
+                    {servicesList.map(s => (
+                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {(filterDate || filterService) && (
+                <button
+                  onClick={() => {
+                    setFilterDate("");
+                    setFilterService("");
+                  }}
+                  className="text-xs font-bold text-[#049DBF] hover:text-[#034959] transition-colors bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl"
+                >
+                  Limpiar Filtros
+                </button>
+              )}
+            </div>
+
+            {loadingReservations ? (
+              <div className="py-12 flex flex-col justify-center items-center">
+                <svg className="animate-spin h-8 w-8 text-brand-teal" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span className="text-xs font-semibold text-brand-teal mt-3">Cargando agenda...</span>
+              </div>
+            ) : (() => {
+              let filtered = reservationsList;
+              if (filterDate) {
+                filtered = filtered.filter(res => res.fecha === filterDate);
+              }
+              if (filterService) {
+                filtered = filtered.filter(res => res.servicio === filterService);
+              }
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="text-center py-12 px-6 border border-dashed border-brand-teal/20 rounded-2xl bg-[#9BF2C1]/10">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-12 h-12 text-[#29A68F]/60 mx-auto mb-3">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008z" />
+                    </svg>
+                    <p className="text-sm font-bold text-[#034959] mb-1">
+                      {filterDate ? "No hay turnos agendados para este día." : "Tu agenda de reservas está vacía."}
+                    </p>
+                    <p className="text-xs text-brand-teal/80">
+                      {filterDate ? "Prueba seleccionando otra fecha en el filtro." : "Comparte tu enlace de reservas con tus clientes para empezar a recibir citas."}
+                    </p>
+                  </div>
+                );
+              }
+
+              // Group by date
+              const grouped = {};
+              filtered.forEach(res => {
+                if (!grouped[res.fecha]) {
+                  grouped[res.fecha] = [];
+                }
+                grouped[res.fecha].push(res);
+              });
+
+              const sortedDates = Object.keys(grouped).sort();
+
+              const formatDateHeader = (dateStr) => {
+                const [year, month, day] = dateStr.split('-').map(Number);
+                const date = new Date(year, month - 1, day);
+                return date.toLocaleDateString('es-ES', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                });
+              };
+
+              return (
+                <div className="space-y-6">
+                  {sortedDates.map(dateStr => (
+                    <div key={dateStr} className="space-y-3">
+                      <h3 className="text-xs font-black text-[#034959] uppercase tracking-wider border-b border-brand-teal/10 pb-1 capitalize animate-fadeIn">
+                        {formatDateHeader(dateStr)}
+                      </h3>
+                      <div className="grid grid-cols-1 gap-3.5">
+                        {grouped[dateStr].map(item => {
+                          const matchedService = servicesList.find(s => s.id === item.servicio);
+                          const serviceName = matchedService?.nombre || "Servicio no especificado";
+                          
+                          return (
+                            <div
+                              key={item.id}
+                              className="bg-white border border-brand-teal/10 rounded-2xl p-4 sm:p-5 shadow-sm hover:border-[#9BF2C1] transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 animate-fadeIn"
+                            >
+                              {/* Info Cliente & Servicio */}
+                              <div className="space-y-1.5 flex-grow pr-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-extrabold text-[#034959]">{item.nombre}</span>
+                                  <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-[#049DBF]/10 text-[#049DBF]">
+                                    {serviceName}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col gap-0.5 text-xs text-slate-500 font-medium">
+                                  <span className="flex items-center gap-1.5">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.8" stroke="currentColor" className="w-3.5 h-3.5 text-slate-400">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 17.5V6.75m19.5 0A2.25 2.25 0 0019.5 4.5H4.5a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                                    </svg>
+                                    {item.email}
+                                  </span>
+                                  <span className="flex items-center gap-1.5">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.8" stroke="currentColor" className="w-3.5 h-3.5 text-slate-400">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-2.824-1.802-5.199-4.178-7.002-7.002l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+                                    </svg>
+                                    {item.telefono}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Hora y Acciones */}
+                              <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center w-full sm:w-auto gap-3.5 shrink-0">
+                                {/* Hora Badge */}
+                                <div className="px-3 py-1.5 rounded-xl bg-[#29A68F]/10 border border-[#29A68F]/25 text-[#034959] font-black text-xs flex items-center gap-1.5 select-none">
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-3.5 h-3.5 text-[#29A68F]">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  {item.hora} hs
+                                </div>
+
+                                {/* Contactar & Cancelar */}
+                                <div className="flex items-center gap-2">
+                                  <a
+                                    href={`https://wa.me/${item.telefono.replace(/[^0-9]/g, '')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-2 rounded-xl text-[#29A68F] hover:bg-brand-mint/20 border border-brand-teal/20 transition-all shadow-sm bg-white"
+                                    title="Chatear por WhatsApp"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 448 512" className="w-3.5 h-3.5">
+                                      <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L32 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z" />
+                                    </svg>
+                                  </a>
+                                  <button
+                                    onClick={() => handleDeleteReservation(item.id)}
+                                    className="p-2 rounded-xl text-red-600 hover:bg-red-50 border border-red-100 transition-all shadow-sm bg-white cursor-pointer"
+                                    title="Cancelar Turno"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-3.5 h-3.5">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
       </main>
