@@ -24,6 +24,7 @@ function ReservasContent() {
   // Business services & schedules states loaded dynamically from database
   const [servicesList, setServicesList] = useState([]);
   const [scheduleList, setScheduleList] = useState([]);
+  const [reservationsList, setReservationsList] = useState([]);
 
   // Booking selections
   const [selectedService, setSelectedService] = useState("");
@@ -112,6 +113,35 @@ function ReservasContent() {
     loadBusinessData();
   }, [businessUserId]);
 
+  // Load reservations for the selected date to compute slot availability
+  useEffect(() => {
+    const loadReservationsForDate = async () => {
+      if (!businessUserId || !selectedDate) {
+        setReservationsList([]);
+        return;
+      }
+      try {
+        const localYear = selectedDate.getFullYear();
+        const localMonth = String(selectedDate.getMonth() + 1).padStart(2, '0');
+        const localDay = String(selectedDate.getDate()).padStart(2, '0');
+        const formattedDate = `${localYear}-${localMonth}-${localDay}`;
+
+        const { data, error } = await supabase
+          .from('reservas')
+          .select('*')
+          .eq('business_id', businessUserId)
+          .eq('fecha', formattedDate);
+
+        if (error) throw error;
+        setReservationsList(data || []);
+      } catch (err) {
+        console.error("Error loading reservations for date:", err);
+      }
+    };
+
+    loadReservationsForDate();
+  }, [businessUserId, selectedDate]);
+
   // Handle month navigation
   const handlePrevMonth = () => {
     setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -151,6 +181,57 @@ function ReservasContent() {
     return dayIndex < 5;
   };
 
+  const checkSlotAvailability = (timeSlotStr) => {
+    if (!selectedService || !selectedDate) return { isAvailable: true };
+
+    const selectedServiceDetail = servicesList.find(s => s.id === selectedService);
+    const serviceCupo = selectedServiceDetail?.cupo || 1;
+
+    // 1. Regla de Cupo
+    const bookingsForThisService = reservationsList.filter(
+      res => res.servicio === selectedService && res.hora === timeSlotStr
+    ).length;
+
+    if (bookingsForThisService >= serviceCupo) {
+      return { isAvailable: false, reason: "Cupo agotado para este servicio en este horario" };
+    }
+
+    // Helper: HH:MM to minutes
+    const timeToMinutes = (t) => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    const startNew = timeToMinutes(timeSlotStr);
+    const endNew = startNew + (selectedServiceDetail?.duracion || 30);
+
+    // 2. Regla de Superposición
+    for (const res of reservationsList) {
+      const resServiceDetail = servicesList.find(s => s.id === res.servicio);
+      const startExist = timeToMinutes(res.hora);
+      const endExist = startExist + (resServiceDetail?.duracion || 30);
+
+      // Interval overlap check:
+      const overlapExists = startNew < endExist && startExist < endNew;
+
+      if (overlapExists) {
+        const existingNoOverlap = resServiceDetail?.permite_superposicion === false;
+        const newNoOverlap = selectedServiceDetail?.permite_superposicion === false;
+
+        if (existingNoOverlap || newNoOverlap) {
+          return { 
+            isAvailable: false, 
+            reason: existingNoOverlap 
+              ? `Horario ocupado por el servicio '${resServiceDetail?.nombre || "Bloqueante"}'` 
+              : "Este servicio no permite superponerse con otros turnos" 
+          };
+        }
+      }
+    }
+
+    return { isAvailable: true };
+  };
+
   const generateTimeSlots = () => {
     if (!selectedDate) return [];
     
@@ -181,7 +262,16 @@ function ReservasContent() {
     while (current < end) {
       const hours = String(current.getHours()).padStart(2, '0');
       const minutes = String(current.getMinutes()).padStart(2, '0');
-      slots.push(`${hours}:${minutes}`);
+      const timeSlotStr = `${hours}:${minutes}`;
+
+      // TODO: Para soportar la funcionalidad de Cupo o Capacidad por turno:
+      // 1. Cargar las reservas existentes de la tabla `reservas` para este business_id y fecha (selectedDate).
+      // 2. Contar la cantidad de reservas agendadas para este bloque horario exacto (timeSlotStr).
+      // 3. Obtener el cupo configurado para el servicio actual: `serviceDetail?.cupo || 1`.
+      // 4. Si el recuento >= cupo del servicio, marcar esta franja horaria como "Agotada" en la UI
+      //    (por ejemplo, devolviendo un objeto { hora: timeSlotStr, agotado: true } para deshabilitar el botón).
+
+      slots.push(timeSlotStr);
       current.setMinutes(current.getMinutes() + duration);
     }
     
@@ -231,6 +321,11 @@ function ReservasContent() {
     }
     if (!selectedTime) {
       setMessage({ type: 'error', text: 'Por favor, selecciona un horario disponible.' });
+      return;
+    }
+    const availability = checkSlotAvailability(selectedTime);
+    if (!availability.isAvailable) {
+      setMessage({ type: 'error', text: `El horario seleccionado no está disponible: ${availability.reason}` });
       return;
     }
     if (!fullName.trim() || !email.trim() || !phone.trim()) {
@@ -387,11 +482,16 @@ function ReservasContent() {
                   className="w-full px-4 py-3 rounded-xl border border-brand-teal/20 text-brand-dark bg-white focus:outline-none focus:border-[#049DBF] focus:ring-4 focus:ring-[#049DBF]/10 transition-all font-medium cursor-pointer"
                 >
                   <option value="" disabled>-- Elige una opción de servicio --</option>
-                  {servicesList.map(service => (
-                    <option key={service.id} value={service.id}>
-                      {service.nombre} ({service.duracion} min)
-                    </option>
-                  ))}
+                  {servicesList.map(service => {
+                    const priceFormatted = Number(service.precio) > 0 
+                      ? `$ ${Number(service.precio).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` 
+                      : 'Gratis';
+                    return (
+                      <option key={service.id} value={service.id}>
+                        {service.nombre} ({service.duracion} min) - {priceFormatted}
+                      </option>
+                    );
+                  })}
                 </select>
                 {selectedService && (
                   <p className="text-xs text-brand-teal mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100 italic">
@@ -507,16 +607,21 @@ function ReservasContent() {
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                     {generateTimeSlots().map((time, idx) => {
                       const isTimeSelected = selectedTime === time;
+                      const availability = checkSlotAvailability(time);
                       return (
                         <button
                           key={idx}
                           type="button"
+                          disabled={!availability.isAvailable}
                           onClick={() => setSelectedTime(time)}
-                          className={`py-2.5 px-3 text-xs font-bold rounded-lg border transition-all text-center cursor-pointer ${
-                            isTimeSelected
-                              ? 'bg-[#73D97A] text-[#034959] border-[#29A68F] font-bold shadow-sm'
-                              : 'bg-white text-brand-dark border-brand-teal/20 hover:bg-brand-mint/50 active:scale-[0.97]'
+                          className={`py-2.5 px-3 text-xs font-bold rounded-lg border transition-all text-center ${
+                            !availability.isAvailable
+                              ? 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
+                              : isTimeSelected
+                                ? 'bg-[#73D97A] text-[#034959] border-[#29A68F] font-bold shadow-sm cursor-pointer'
+                                : 'bg-white text-brand-dark border-brand-teal/20 hover:bg-brand-mint/50 active:scale-[0.97] cursor-pointer'
                           }`}
+                          title={!availability.isAvailable ? `Bloqueado: ${availability.reason}` : ''}
                         >
                           {time} hs
                         </button>
@@ -564,6 +669,21 @@ function ReservasContent() {
                   <span className="text-[#9BF2C1] font-medium">Horario:</span>
                   <span className="font-bold text-right text-white">
                     {selectedTime ? `${selectedTime} hs` : "No seleccionado"}
+                  </span>
+                </li>
+                <li className="flex justify-between border-t border-white/10 pt-3.5">
+                  <span className="text-[#9BF2C1] font-medium">Precio:</span>
+                  <span className="font-bold text-right text-white">
+                    {selectedService 
+                      ? (() => {
+                          const s = servicesList.find(x => x.id === selectedService);
+                          const price = Number(s?.precio || 0);
+                          return price > 0 
+                            ? `$ ${price.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` 
+                            : "Gratis";
+                        })()
+                      : "No seleccionado"
+                    }
                   </span>
                 </li>
               </ul>
