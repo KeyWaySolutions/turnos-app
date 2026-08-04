@@ -30,12 +30,12 @@ function ReservasContent() {
   const [selectedService, setSelectedService] = useState("");
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
-  
+
   // Client details
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  
+
   // Application states
   const [viewDate, setViewDate] = useState(new Date());
   const [currentDateObj, setCurrentDateObj] = useState(null);
@@ -51,7 +51,7 @@ function ReservasContent() {
         setLoadingBusiness(false);
         return;
       }
-      
+
       try {
         const { data, error } = await supabase
           .from('perfiles')
@@ -67,7 +67,7 @@ function ReservasContent() {
             throw error;
           }
         }
-        
+
         if (data) {
           setBusinessUserId(data.user_id);
           setBusinessName(data.nombre);
@@ -155,8 +155,8 @@ function ReservasContent() {
   const isToday = (dayDate) => {
     if (!dayDate || !currentDateObj) return false;
     return dayDate.getDate() === currentDateObj.getDate() &&
-           dayDate.getMonth() === currentDateObj.getMonth() &&
-           dayDate.getFullYear() === currentDateObj.getFullYear();
+      dayDate.getMonth() === currentDateObj.getMonth() &&
+      dayDate.getFullYear() === currentDateObj.getFullYear();
   };
 
   const isPast = (dayDate) => {
@@ -172,11 +172,11 @@ function ReservasContent() {
 
     const dayIndex = dayDate.getDay() === 0 ? 6 : dayDate.getDay() - 1;
     const dayConfig = scheduleList.find(s => s.dia === dayIndex);
-    
+
     if (dayConfig) {
       return dayConfig.activo;
     }
-    
+
     // Fallback: lunes a viernes activo por defecto
     return dayIndex < 5;
   };
@@ -219,11 +219,11 @@ function ReservasContent() {
         const newNoOverlap = selectedServiceDetail?.permite_superposicion === false;
 
         if (existingNoOverlap || newNoOverlap) {
-          return { 
-            isAvailable: false, 
-            reason: existingNoOverlap 
-              ? `Horario ocupado por el servicio '${resServiceDetail?.nombre || "Bloqueante"}'` 
-              : "Este servicio no permite superponerse con otros turnos" 
+          return {
+            isAvailable: false,
+            reason: existingNoOverlap
+              ? `Horario ocupado por el servicio '${resServiceDetail?.nombre || "Bloqueante"}'`
+              : "Este servicio no permite superponerse con otros turnos"
           };
         }
       }
@@ -234,31 +234,31 @@ function ReservasContent() {
 
   const generateTimeSlots = () => {
     if (!selectedDate) return [];
-    
+
     const dayIndex = selectedDate.getDay() === 0 ? 6 : selectedDate.getDay() - 1;
     const dayConfig = scheduleList.find(s => s.dia === dayIndex);
-    
+
     const startTimeStr = dayConfig ? dayConfig.hora_inicio : "09:00";
     const endTimeStr = dayConfig ? dayConfig.hora_fin : "18:00";
-    
+
     // Si el día no está activo, no hay horarios
     if (dayConfig && !dayConfig.activo) return [];
-    
+
     const serviceDetail = servicesList.find(s => s.id === selectedService);
     const duration = serviceDetail ? serviceDetail.duracion : 30; // minutos
-    
+
     const slots = [];
-    
+
     // Parse hours and minutes
     const [startH, startM] = startTimeStr.split(':').map(Number);
     const [endH, endM] = endTimeStr.split(':').map(Number);
-    
+
     let current = new Date(selectedDate);
     current.setHours(startH, startM, 0, 0);
-    
+
     const end = new Date(selectedDate);
     end.setHours(endH, endM, 0, 0);
-    
+
     while (current < end) {
       const hours = String(current.getHours()).padStart(2, '0');
       const minutes = String(current.getMinutes()).padStart(2, '0');
@@ -274,7 +274,7 @@ function ReservasContent() {
       slots.push(timeSlotStr);
       current.setMinutes(current.getMinutes() + duration);
     }
-    
+
     return slots;
   };
 
@@ -282,7 +282,7 @@ function ReservasContent() {
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const firstDayOfMonth = new Date(year, month, 1);
-  
+
   const rawFirstDay = firstDayOfMonth.getDay();
   const offset = rawFirstDay === 0 ? 6 : rawFirstDay - 1;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -309,7 +309,7 @@ function ReservasContent() {
   // Handle form submission
   const handleSubmitBooking = async (e) => {
     e.preventDefault();
-    
+
     // Validations
     if (!selectedService) {
       setMessage({ type: 'error', text: 'Por favor, selecciona un tipo de servicio.' });
@@ -360,12 +360,31 @@ function ReservasContent() {
 
       if (error) throw error;
 
+      // Send confirmation email via Resend API endpoint
+      try {
+        const serviceName = servicesList.find(s => s.id === selectedService)?.nombre || 'Servicio';
+        const emailPrueba = 'keywayscontacto@gmail.com';
+        await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: emailPrueba.trim(),
+            clientName: fullName.trim(),
+            serviceName,
+            date: formattedDate,
+            time: selectedTime,
+            businessName: businessName || 'TurnosYa',
+          }),
+        });
+      } catch (emailErr) {
+        console.error('Error enviando email de confirmación:', emailErr);
+      }
+
       // Show success alert using the specified tones (#9BF2C1 and #73D97A)
       setMessage({
         type: 'success',
-        text: `¡Reserva confirmada con éxito! Tu turno para el servicio de ${
-          servicesList.find(s => s.id === selectedService)?.nombre
-        } ha sido agendado para el día ${formatFullSelectedDate(selectedDate)} a las ${selectedTime} hs.`
+        text: `¡Reserva confirmada con éxito! Tu turno para el servicio de ${servicesList.find(s => s.id === selectedService)?.nombre
+          } ha sido agendado para el día ${formatFullSelectedDate(selectedDate)} a las ${selectedTime} hs.`
       });
 
       // Clear selections & inputs
@@ -405,8 +424,8 @@ function ReservasContent() {
             </span>
           </div>
         </div>
-        <a 
-          href="/login" 
+        <a
+          href="/login"
           className="text-xs font-bold text-brand-cyan hover:text-brand-teal transition-colors border border-brand-cyan/20 px-3 py-1.5 rounded-lg hover:bg-brand-mint/10"
         >
           Acceso Administrador
@@ -434,8 +453,8 @@ function ReservasContent() {
           <p className="text-sm text-slate-500 mb-6">
             Para solicitar un turno, debes acceder a través del enlace compartido por el negocio (por ejemplo, <code className="bg-slate-100 px-1.5 py-0.5 rounded text-brand-cyan text-xs">/reservas?slug=nombre-de-negocio</code>).
           </p>
-          <a 
-            href="/login" 
+          <a
+            href="/login"
             className="px-4 py-2.5 bg-brand-cyan text-white text-xs font-bold rounded-xl shadow-md hover:bg-[#034959] transition-all"
           >
             Iniciar Sesión como Administrador
@@ -453,8 +472,8 @@ function ReservasContent() {
           <p className="text-sm text-slate-500 mb-6">
             No se pudo encontrar ningún perfil registrado con el nombre de enlace: <code className="bg-slate-100 px-1.5 py-0.5 rounded text-red-600 text-xs">{slug}</code>. Por favor, verifica la dirección.
           </p>
-          <a 
-            href="/login" 
+          <a
+            href="/login"
             className="px-4 py-2.5 bg-brand-cyan text-white text-xs font-bold rounded-xl shadow-md hover:bg-[#034959] transition-all"
           >
             Configurar un nuevo negocio
@@ -463,7 +482,7 @@ function ReservasContent() {
       ) : (
         /* Valid tenant bookings portal */
         <main className="flex-grow max-w-6xl w-full mx-auto p-6 sm:p-10 grid grid-cols-1 lg:grid-cols-12 gap-8 bg-white">
-          
+
           {/* LEFT COLUMN: Selector, Calendar and Time Grid (7 cols) */}
           <section className="lg:col-span-7 space-y-6">
             <div className="bg-white rounded-2xl border border-brand-teal/10 p-5 sm:p-7 shadow-sm">
@@ -483,8 +502,8 @@ function ReservasContent() {
                 >
                   <option value="" disabled>-- Elige una opción de servicio --</option>
                   {servicesList.map(service => {
-                    const priceFormatted = Number(service.precio) > 0 
-                      ? `$ ${Number(service.precio).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` 
+                    const priceFormatted = Number(service.precio) > 0
+                      ? `$ ${Number(service.precio).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
                       : 'Gratis';
                     return (
                       <option key={service.id} value={service.id}>
@@ -545,7 +564,7 @@ function ReservasContent() {
                     }
 
                     const dayNum = dayDate.getDate();
-                    const isSelected = selectedDate && 
+                    const isSelected = selectedDate &&
                       dayDate.getDate() === selectedDate.getDate() &&
                       dayDate.getMonth() === selectedDate.getMonth() &&
                       dayDate.getFullYear() === selectedDate.getFullYear();
@@ -554,7 +573,7 @@ function ReservasContent() {
                     const isAvailable = isDayAvailable(dayDate);
 
                     let dayStyles = "p-2 rounded-xl text-sm font-semibold transition-all relative flex flex-col items-center justify-center aspect-square select-none ";
-                    
+
                     if (isSelected) {
                       dayStyles += "bg-[#9BF2C1] text-[#034959] font-bold border-2 border-[#73D97A] shadow-sm";
                     } else if (!isAvailable) {
@@ -614,13 +633,12 @@ function ReservasContent() {
                           type="button"
                           disabled={!availability.isAvailable}
                           onClick={() => setSelectedTime(time)}
-                          className={`py-2.5 px-3 text-xs font-bold rounded-lg border transition-all text-center ${
-                            !availability.isAvailable
-                              ? 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
-                              : isTimeSelected
-                                ? 'bg-[#73D97A] text-[#034959] border-[#29A68F] font-bold shadow-sm cursor-pointer'
-                                : 'bg-white text-brand-dark border-brand-teal/20 hover:bg-brand-mint/50 active:scale-[0.97] cursor-pointer'
-                          }`}
+                          className={`py-2.5 px-3 text-xs font-bold rounded-lg border transition-all text-center ${!availability.isAvailable
+                            ? 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
+                            : isTimeSelected
+                              ? 'bg-[#73D97A] text-[#034959] border-[#29A68F] font-bold shadow-sm cursor-pointer'
+                              : 'bg-white text-brand-dark border-brand-teal/20 hover:bg-brand-mint/50 active:scale-[0.97] cursor-pointer'
+                            }`}
                           title={!availability.isAvailable ? `Bloqueado: ${availability.reason}` : ''}
                         >
                           {time} hs
@@ -674,14 +692,14 @@ function ReservasContent() {
                 <li className="flex justify-between border-t border-white/10 pt-3.5">
                   <span className="text-[#9BF2C1] font-medium">Precio:</span>
                   <span className="font-bold text-right text-white">
-                    {selectedService 
+                    {selectedService
                       ? (() => {
-                          const s = servicesList.find(x => x.id === selectedService);
-                          const price = Number(s?.precio || 0);
-                          return price > 0 
-                            ? `$ ${price.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` 
-                            : "Gratis";
-                        })()
+                        const s = servicesList.find(x => x.id === selectedService);
+                        const price = Number(s?.precio || 0);
+                        return price > 0
+                          ? `$ ${price.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+                          : "Gratis";
+                      })()
                       : "No seleccionado"
                     }
                   </span>
@@ -693,7 +711,7 @@ function ReservasContent() {
             <div className="bg-white rounded-2xl border border-brand-teal/10 p-5 sm:p-6 shadow-sm">
               <h3 className="text-lg font-extrabold text-[#034959] mb-4">Información de Contacto</h3>
               <form onSubmit={handleSubmitBooking} className="space-y-4">
-                
+
                 <div>
                   <label htmlFor="fullname" className="block text-sm font-bold text-[#034959] mb-1.5">
                     Nombre Completo
@@ -741,11 +759,10 @@ function ReservasContent() {
 
                 {/* Alert Message Banner */}
                 {message.text && (
-                  <div className={`p-4 rounded-xl flex items-start gap-3 transition-all ${
-                    message.type === 'success'
-                      ? 'bg-[#9BF2C1]/40 border border-[#73D97A] text-[#034959]' 
-                      : 'bg-red-50 border border-red-200 text-red-800'
-                  }`}>
+                  <div className={`p-4 rounded-xl flex items-start gap-3 transition-all ${message.type === 'success'
+                    ? 'bg-[#9BF2C1]/40 border border-[#73D97A] text-[#034959]'
+                    : 'bg-red-50 border border-red-200 text-red-800'
+                    }`}>
                     <div className="mt-0.5 flex-shrink-0">
                       {message.type === 'success' ? (
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-brand-teal">
